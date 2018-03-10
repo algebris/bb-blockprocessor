@@ -1,37 +1,63 @@
 const _ = require('lodash');
 const Promise = require('bluebird');
 const cfg = require('../config');
-const RpcClient = require('bitcoin-core');
-const client = new RpcClient(cfg.rpc);
+const bunyan = require('bunyan');
+const log = bunyan.createLogger({name: 'core.blockProcessor'});
 const txsProcessService = require('./txsProcessService');
-const {keyPress} = require('../utils');
+const {inspect} = require('../utils');
+const client = require('../utils/client');
+const Block = require('../utils/block');
 
 module.exports = async (currentBlock) => {
-  const blockHeight = await client.getBlockCount();
+  const blockHeight = await client.blockCount();
   
   if (!blockHeight || blockHeight <= currentBlock)
     return Promise.reject({code: 0});
   
-  const blockHash = await client.command('getblockhash', currentBlock + 1);  
-  const block = await client.command('getblock', blockHash);
+  const blockHash = await client.blockHashById(currentBlock);
+  const blockObj = await client.blockByHash(blockHash);
 
-  if (!block)
+  if (!blockObj) 
     return Promise.reject({code: 0});
+    
+  const block = new Block(blockObj); 
+  const txs = await block.fetchBlockTxs();
 
-  if (!_.get(block, 'tx') || _.isEmpty(block.tx)) {
-    return Promise.reject({code: 2});
+  async process() {
+    return _.chain(this.txs)
+      .each(tx => _.chain(tx)
+        .processOuts()
+        .processIns()
+        .value()
+      )
+      .value();
   }
-  const v1 = await client.command('gettransaction', '9a65eba57128cfcbae44865dd77b6c74a0035731a5fa01f5ce5e0e41d324ec6e');
-  const v2 = await client.command('gettransaction', 'a58df0ff6601ee8a539c21881ee38c0c505865a75358045e59f5f807a03494a9');
-  
-  console.log(v1, v2)
-  keyPress();
-  // const trans = _.map(block.tx, async tx => {
-  //   return await client.getTransactionByHash(tx);
-  // });
 
-  // console.log(trans);
-  process.exit();
-
-  return await txsProcessService(block.tx);
+  return await block.process();
 };
+
+
+// const txIns() {
+//   const zz = _.chain(this.txs)
+//     .pick(['txid', 'vin', 'vout']).value();
+//   console.log(zz);
+//   return zz;
+// }
+// get txOuts() {
+//   return _.chain(this.txs).pick(['txid', 'vout']).value();
+// }
+
+  // const insputs = _.chain(blockTxs)
+  //   .map(txObj => tx.getTxIns(txObj))
+  //   .remove(txIn => !_.has(txIn.vin[0], 'coinbase'))
+  //   .value();
+  
+  //   const outputs = _.chain(blockTxs)
+  //     .map(txObj => tx.getTxOuts(txObj))
+  //     .value();
+
+  // return outputs;
+
+
+  // console.log(inspect(ins));
+  // const obj = await processTxs(block.tx);

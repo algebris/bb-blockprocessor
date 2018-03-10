@@ -5,6 +5,10 @@ module.exports = {
   mongo: {
     uri: process.env.MONGO_URI || 'mongodb://localhost:27017/bitbay'
   },
+  redis: {
+    host: 'localhost',
+    port: 6379
+  },
   rpc: {
     port: process.env.RPC_PORT || 8000,
     username: process.env.RPC_USER || '',

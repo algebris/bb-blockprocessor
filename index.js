@@ -4,9 +4,12 @@ const mongoose = require('mongoose');
 const bunyan = require('bunyan');
 
 const cfg = require('./config');
+const redis = require('./utils/redis').client;
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
 const blockModel = require('./models/blockModel');
 const blockProcessService = require('./services/blockProcessService');
+
+const {inspect} = require('./utils');
 
 // const bitcore = require('bitcore');
 // const RpcClient = require('bitcoind-rpc');
@@ -29,15 +32,20 @@ const saveBlockHeight = currentBlock =>
   }, {upsert: true});
 
 const init = async () => {
+  const FROM = 1573188;
   let currentBlock = await blockModel.findOne({network: cfg.network});
   currentBlock = _.chain(currentBlock).get('block', 0).add(0).value();
+  currentBlock = FROM;
   log.info(`Search from block ${currentBlock} for network:${cfg.network}`);
   
   const processBlock = async () => {
     try {
-      let filteredTxs = await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
+      let processed = await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
+      // console.log(inspect(processed));
+
+      if (currentBlock >= FROM + 2) process.exit();
       
-      await saveBlockHeight(currentBlock + 1);
+      console.log('Block#', currentBlock);
 
       currentBlock++;
       processBlock();  
@@ -53,11 +61,6 @@ const init = async () => {
 
         lastBlockHeight = currentBlock;
         return setTimeout(processBlock, 3000);
-      }
-
-      if (_.get(err, 'code') === 2) {
-        log.info(`Skipping the block (${currentBlock + 1})`);
-        await saveBlockHeight(currentBlock + 1);
       }
 
       currentBlock++;
