@@ -23,17 +23,35 @@ module.exports = async (currentBlock) => {
   const block = new Block(blockObj); 
   const txs = await block.fetchBlockTxs();
 
-  async process() {
-    return _.chain(this.txs)
-      .each(tx => _.chain(tx)
-        .processOuts()
-        .processIns()
-        .value()
-      )
-      .value();
+  const processIns = async tx => {
+    return _.transform(tx.vin, async (acc, $in) => {
+      if($in.txid && $in.vout) {
+        const result = await client.updateInRecord($in.txid, $in.vout);
+        console.log('INS>', result);
+      }
+    });
+  };
+
+  const processOuts = async tx => {
+    return _.transform(tx.vout, async (acc, $out) => {
+      const addr = _.get($out, 'scriptPubKey.addresses');
+      if(addr) {
+        const result = await client.updateOutRecord(tx.txid, $out.n, addr, $out.value);
+        console.log('OUTS>', result);
+      }
+    });
+  };
+
+  const process = async () => {
+    return Promise.each(txs, async (tx, idx) => {
+        console.log('processing tx#', tx.txid);
+        const ins = await processIns(tx);
+        const outs = await processOuts(tx);
+        return {ins, outs};
+      });
   }
 
-  return await block.process();
+  return await process();
 };
 
 

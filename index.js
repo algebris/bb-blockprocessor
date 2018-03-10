@@ -40,13 +40,12 @@ const init = async () => {
   
   const processBlock = async () => {
     try {
+      console.log('Block#', currentBlock);
       let processed = await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
       // console.log(inspect(processed));
 
       if (currentBlock >= FROM + 2) process.exit();
       
-      console.log('Block#', currentBlock);
-
       currentBlock++;
       processBlock();  
     } catch(err) {

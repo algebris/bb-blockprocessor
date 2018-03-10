@@ -27,6 +27,18 @@ class Client {
       .map(tx => ({method: 'gettransaction', parameters: [tx]}))
       .value();
   }
+  async updateInRecord(txid, vout) {
+    return {txid, vout};
+  }
+  async updateOutRecord(txid, n, addr, value) {
+    if(addr.length > 1) {
+      console.error('Found multiple address', addr);
+      process.exit(1);
+    }
+    
+    return {txid, n, addr, value};
+  }
+
 }
 
 module.exports = new Client();
