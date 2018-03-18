@@ -1,5 +1,5 @@
 const _ = require('lodash');
-const Promise = require('bluebird');
+// const Promise = require('bluebird');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'utils.client'});
 const cfg = require('../config');
@@ -27,17 +27,18 @@ class Client {
       .map(tx => ({method: 'gettransaction', parameters: [tx]}))
       .value();
   }
-  async updateInRecord(txid, vout) {
-    return {txid, vout};
-  }
-  async updateOutRecord(txid, n, addr, value) {
-    if(addr.length > 1) {
-      console.error('Found multiple address', addr);
-      process.exit(1);
-    }
+  // async updateInRecord(txid, vout) {
+
+  //   return {txid, vout};
+  // }
+  // async updateOutRecord(txid, n, addr, value) {
+  //   if(addr.length > 1) {
+  //     console.error('Found multiple address', addr);
+  //     process.exit(1);
+  //   }
     
-    return {txid, n, addr, value};
-  }
+  //   return {txid, n, addr, value};
+  // }
 
 }
 

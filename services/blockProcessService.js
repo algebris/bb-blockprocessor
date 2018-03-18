@@ -1,12 +1,13 @@
 const _ = require('lodash');
 const Promise = require('bluebird');
-const cfg = require('../config');
+// const cfg = require('../config');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
-const txsProcessService = require('./txsProcessService');
-const {inspect} = require('../utils');
+// const {inspect} = require('../utils');
 const client = require('../utils/client');
 const Block = require('../utils/block');
+const db = require('../utils/redis');
+const Decimal = require('decimal.js');
 
 module.exports = async (currentBlock) => {
   const blockHeight = await client.blockCount();
@@ -22,60 +23,73 @@ module.exports = async (currentBlock) => {
     
   const block = new Block(blockObj); 
   const txs = await block.fetchBlockTxs();
+  
+  const getUtxoName  = (txid, slot) => `utxo:${txid}:${slot}`;
 
   const processIns = async tx => {
-    return _.transform(tx.vin, async (acc, $in) => {
-      if($in.txid && $in.vout) {
-        const result = await client.updateInRecord($in.txid, $in.vout);
-        console.log('INS>', result);
+    return Promise.each(tx.vin, async $in => {
+      if($in.txid && _.has($in, 'vout')) {
+        const utxoName = getUtxoName($in.txid, $in.vout);
+        const fout = await db.getObj(utxoName);
+        
+        if(fout) {
+          const walletBalance = await db.get(`addr:bal:${fout.addr}`);
+          const value = new Decimal(walletBalance);
+          
+          log.warn('FINP >', value.valueOf(), fout.val);
+
+          return Promise.all([
+            db.delUtxo(utxoName),
+            db.set(`addr:bal:${fout.addr}`, value.sub(fout.val).valueOf())
+          ]);
+          // db.spendTxAddr(fout.addr, $in.txid);
+        } else {
+          log.warn(`DB missed TX [currentBlock=${currentBlock}, txId=${utxoName}]`);
+        }
+      } else {
+        return Promise.resolve([]);
       }
-    });
+    }).then(res => log.warn('INS >',res));
   };
 
   const processOuts = async tx => {
-    return _.transform(tx.vout, async (acc, $out) => {
-      const addr = _.get($out, 'scriptPubKey.addresses');
-      if(addr) {
-        const result = await client.updateOutRecord(tx.txid, $out.n, addr, $out.value);
-        console.log('OUTS>', result);
+    return Promise.map(tx.vout, async $out => {
+      let addr = _.get($out, 'scriptPubKey.addresses');
+      
+      if(!addr) {
+        log.warn('Empty OUTPUT', $out);
+        return Promise.resolve([]);
       }
-    });
+      if(addr.length > 1) 
+        log.warn('Found multiple addresses in OUT array [txid, txOut]', tx.txid, $out);
+      
+      addr = addr[0];
+
+      if($out.value === 0) {
+        // log.warn('Empty output to ', addr);
+        return Promise.resolve(1);
+      }
+
+      let balance = await db.get(`addr:bal:${addr}`) || 0;
+      balance = new Decimal(balance);
+      balance = balance.add($out.value);
+
+      log.warn('VALUE-OUT', $out.value, balance.valueOf());
+      return Promise.all([
+        db.set(getUtxoName(tx.txid, $out.n), {addr, val: $out.value}),
+        db.set(`addr:bal:${addr}`, balance.valueOf()),
+        // db.pushTxAddr(`addr:utxs:${addr}`, tx.txid, {val: $out.value})
+      ]);
+    }).then(res => log.warn('OUTS >',res));
   };
 
   const process = async () => {
-    return Promise.each(txs, async (tx, idx) => {
-        console.log('processing tx#', tx.txid);
-        const ins = await processIns(tx);
-        const outs = await processOuts(tx);
-        return {ins, outs};
-      });
-  }
+    return Promise.each(txs, async tx => {
+      log.info('processing tx#', tx.txid);
+      await processIns(tx);
+      await processOuts(tx);
+    });
+  };
 
-  return await process();
+  return process();
 };
-
-
-// const txIns() {
-//   const zz = _.chain(this.txs)
-//     .pick(['txid', 'vin', 'vout']).value();
-//   console.log(zz);
-//   return zz;
-// }
-// get txOuts() {
-//   return _.chain(this.txs).pick(['txid', 'vout']).value();
-// }
-
-  // const insputs = _.chain(blockTxs)
-  //   .map(txObj => tx.getTxIns(txObj))
-  //   .remove(txIn => !_.has(txIn.vin[0], 'coinbase'))
-  //   .value();
-  
-  //   const outputs = _.chain(blockTxs)
-  //     .map(txObj => tx.getTxOuts(txObj))
-  //     .value();
-
-  // return outputs;
-
-
-  // console.log(inspect(ins));
-  // const obj = await processTxs(block.tx);

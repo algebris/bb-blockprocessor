@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon index.js",
+    "start": "nodemon index.js|./node_modules/bunyan/bin/bunyan",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -16,6 +16,7 @@
     "bitcore-explorers": "^1.0.1",
     "bluebird": "^3.5.1",
     "bunyan": "^1.8.12",
+    "decimal.js": "^10.0.0",
     "dotenv": "^5.0.1",
     "keypress": "^0.2.1",
     "leveldown": "^3.0.0",
