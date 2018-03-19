@@ -78,8 +78,8 @@ module.exports.spendTxAddr = async (addr, txid) => {
   }
 
   return Promise.all([
-    client.hsetAsync(`addr:txs:${addr}`, utxo),
-    client.hdelAsync(`addr:utxs:${addr}`)
+    // client.hsetAsync(`addr:txs:${addr}`, utxo),
+    // client.hdelAsync(`addr:utxs:${addr}`)
   ]);
 };
 
@@ -89,5 +89,8 @@ module.exports.delUtxo = key => {
 };
 
 module.exports.getBalance = addr => client.getAsync(addr);
+
+module.exports.getCurrentBlock = () => client.getAsync('current-block');
+module.exports.setCurrentBlock = block => client.setAsync('current-block', block);
 
 module.exports.client = client;

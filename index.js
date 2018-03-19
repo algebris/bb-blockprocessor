@@ -1,26 +1,17 @@
 const _ = require('lodash');
 const Promise = require('bluebird');
-const mongoose = require('mongoose');
 const bunyan = require('bunyan');
 
 const cfg = require('./config');
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
-const blockModel = require('./models/blockModel');
 const blockProcessService = require('./services/blockProcessService');
+const db = require('./utils/redis');
 
 // const {inspect} = require('./utils');
 
 // const bitcore = require('bitcore');
 // const RpcClient = require('bitcoind-rpc');
 // const client = require('bitcoind-rpc');
-
-mongoose.Promise = Promise;
-mongoose.connect(cfg.mongo.uri);
-
-mongoose.connection.on('disconnected', function () {
-  log.error('Mongo disconnected!');
-  process.exit(0);
-});
 
 // const saveBlockHeight = currentBlock =>
 //   blockModel.findOneAndUpdate({network: cfg.network}, {
@@ -31,11 +22,8 @@ mongoose.connection.on('disconnected', function () {
 //   }, {upsert: true});
 
 const init = async () => {
-  const FROM = 1;
   let lastBlockHeight = 0;
-  let currentBlock = await blockModel.findOne({network: cfg.network});
-  currentBlock = _.chain(currentBlock).get('block', 0).add(0).value();
-  currentBlock = FROM;
+  let currentBlock = await db.getCurrentBlock() || 0;
   log.info(`Search from block ${currentBlock} for network:${cfg.network}`);
   
   const processBlock = async () => {
@@ -44,9 +32,10 @@ const init = async () => {
       let processed = await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
       // console.log(inspect(processed));
 
-      if (currentBlock > 6610) process.exit();
+      // if (currentBlock > 6610) process.exit();
       // if (currentBlock == 102) currentBlock = 5450;
-
+      await db.setCurrentBlock(currentBlock);
+      
       currentBlock++;
       processBlock();  
     } catch(err) {
