@@ -1,6 +1,6 @@
 # BB block processor
 
-As a part of BB backend experimental envoronment there are two modules at the moment.
+As a part of BB backend experimental environment there are two modules at the moment.
 *BlockProcessor* intended to work with blockchain fetching and processing transactions directly via RPC port.
 And *Rest API* which intended for querying processed data. They both use the same database (Redis).
 
@@ -29,6 +29,20 @@ v5.6.0
 ### Redis database is installed and accessible by default
 
 https://redis.io/download
+
+```
+# redis-cli
+127.0.0.1:6379> INFO
+# Server
+redis_version:4.0.6
+redis_git_sha1:00000000
+redis_git_dirty:0
+redis_build_id:6c8cb96efe308f7c
+redis_mode:standalone
+os:Darwin 15.6.0 x86_64
+arch_bits:64
+[;TLTR]
+```
 
 
 ## Installation
