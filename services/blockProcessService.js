@@ -5,7 +5,6 @@ const log = bunyan.createLogger({name: 'core.blockProcessor'});
 const client = require('../utils/client');
 const Block = require('../utils/block');
 const db = require('../utils/redis');
-const Decimal = require('decimal.js');
 
 module.exports = async (currentBlock) => {
   const blockHeight = await client.blockCount();
@@ -22,68 +21,124 @@ module.exports = async (currentBlock) => {
   const block = new Block(blockObj); 
   const txs = await block.fetchBlockTxs();
   
-  const getUtxoName  = (txid, slot) => `utxo:${txid}:${slot}`;
+  const process = async (txs) => {
+    for(const tx of txs) {
+      log.info('Processing tx#', tx.txid);
+      const vin = await filterIns(tx);
+      const {vout, nvin} = await filterOuts(tx, vin);
+      
+      for (const ni of nvin) {
+        await updateAddress(ni.addr, tx.txid, ni.amount, 'vin');
+      }
+      for (const vo of vout) {
+        await updateAddress(vo.addr, tx.txid, vo.amount, 'vout');
+      }
+    }
+  };
 
-  const processIns = async tx => {
-    return Promise.each(tx.vin, async $in => {
-      if($in.txid && _.has($in, 'vout')) {
-        const utxoName = getUtxoName($in.txid, $in.vout);
-        const fout = await db.getObj(utxoName);
-        
-        if(fout) {
-          const walletBalance = await db.get(`addr:bal:${fout.addr}`);
-          const value = new Decimal(walletBalance);
-
-          return Promise.all([
-            db.delUtxo(utxoName),
-            db.set(`addr:bal:${fout.addr}`, value.sub(fout.val).valueOf()),
-            // db.spendTxAddr(fout.addr, $in.txid)
-          ]);
-        } else {
-          log.warn(`DB missed TX [currentBlock=${currentBlock}, txId=${utxoName}]`);
-        }
+  const convertToSatoshi = amount => parseInt(parseFloat(amount).toFixed(8).toString().replace('.', ''));  
+  const groupByAddr = arr => _.chain(arr)
+    .groupBy('addr')
+    .map((group, key) => ({addr: key, amount: _.sumBy(group, 'amount')}))
+    .value();
+  
+  /**
+   * Processing INS
+   * @param {array} tx Transaction's object
+   */
+  const filterIns = async tx => {
+    let arrVin = [];
+    for (const vin of tx.vin) {
+      if(vin.coinbase) {
+        let amount = 0;
+        // If coinbase input then return sum of all outputs
+        tx.vout.forEach(vout => {
+          const pk = vout.scriptPubKey;
+          if (pk.type != 'nonstandard' && pk.type != 'nulldata') {
+            amount += convertToSatoshi(vout.value);
+            arrVin.push({addr: 'coinbase', amount});
+          }
+        });
       } else {
-        return Promise.resolve(1);
+        let fout = await db.client.get(`utxo:${vin.txid}:${vin.vout}`);
+        fout = JSON.parse(fout);
+
+        if(fout) {
+          await db.client.pipeline()
+            .del(`utxo:${vin.txid}:${vin.vout}`)
+            .hdel(`addr.utxo:${fout.addr}`, `${vin.txid}:${vin.vout}`)
+            .exec();
+
+          arrVin.push({addr: fout.addr, amount: fout.amount});
+        } else {
+          log.error(`DB missed TX [currentBlock=${currentBlock}, txId=utxo:${vin.txid}:${vin.vout}]`);
+        }
       }
-    });
+    }
+    return groupByAddr(arrVin);
   };
 
-  const processOuts = async tx => {
-    return Promise.map(tx.vout, async $out => {
-      let addr = _.get($out, 'scriptPubKey.addresses');
+  /**
+   * Processing OUTS
+   * @param {array} tx Transaction's object
+   * @param {array} vin Processed input object
+   */
+  const filterOuts = async (tx, vin) => {
+    let arrVout = [];
+    let nvin = Array.from(vin);
+    for (const vout of tx.vout) {
+      const pk = vout.scriptPubKey;
       
-      if(!addr) {
-        log.warn('Empty OUTPUT', $out);
-        return Promise.resolve(1);
+      // Process valid output
+      if (pk.type != 'nonstandard' && pk.type != 'nulldata') {
+        const amount = convertToSatoshi(vout.value);
+        const addr = pk.addresses[0];
+        const obj = JSON.stringify({addr, amount, height: currentBlock});
+
+        await db.client.pipeline()
+          .set(`utxo:${tx.txid}:${vout.n}`, obj) // save Utxo
+          .hset(`addr.utxo:${addr}`, `${tx.txid}:${vout.n}`, obj)
+          .exec();
+        
+        arrVout.push({addr, amount});
       }
-      if(addr.length > 1) 
-        log.warn('Found multiple addresses in OUT array [txid, txOut]', tx.txid, $out);
-      
-      addr = addr[0];
-
-      if($out.value === 0) {
-        return Promise.resolve(1);
-      }
-
-      let balance = await db.get(`addr:bal:${addr}`) || 0;
-      balance = new Decimal(balance);
-      balance = balance.add($out.value);
-
-      return Promise.all([
-        db.set(getUtxoName(tx.txid, $out.n), {addr, val: $out.value}),
-        db.set(`addr:bal:${addr}`, balance.valueOf()),
-        // db.pushTxAddr(`addr:utxs:${addr}`, tx.txid, {val: $out.value})
-      ]);
-    });
+      // Group addresses and it's amounts
+      arrVout = groupByAddr(arrVout);
+    }
+    // Calculate balance for PoS blocks 
+    if(tx.vout[0].scriptPubKey.type == 'nonstandard' && arrVout.length > 0 && nvin.length > 0 && nvin[0].addr == arrVout[0].addr) {
+      arrVout[0].amount -= nvin[0].amount;
+      nvin.shift();
+    }
+    return {vout: arrVout, nvin};
   };
 
-  const process = async () => {
-    return Promise.each(txs, async tx => {
-      // log.info('processing tx#', tx.txid);
-      await processIns(tx);
-      await processOuts(tx);
-    });
+  /**
+   * Update account's balances
+   * @param {string} addr
+   * @param {string} txid 
+   * @param {number} amount 
+   * @param {string} type 
+   */
+  const updateAddress = async (addr, txid, amount, type) => {
+    if ( addr == 'coinbase' ) {
+      return await db.hincrby('coinbase', 'sent', amount);
+    }
+    let [sent, received] = await db.hmget(`addr:${addr}`, ['sent', 'received']);
+    sent = parseInt(sent) || 0;
+    received = parseInt(received) || 0;
+
+    if (type == 'vin') {
+      sent += amount;
+    } else {
+      received += amount;
+    }
+    const balance = received - sent;
+
+    // await db.hsetnx(`addr:${addr}`, `tx:${currentBlock}:${txid}:${type}`, JSON.stringify({amount}));
+    await db.hmset(`addr:${addr}`, {sent, received, balance});
+    // await db.hset('blocklog', `${currentBlock}:${blockHash}`, );
   };
 
-  return process();
+  return process(txs);
 };

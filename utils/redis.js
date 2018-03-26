@@ -1,16 +1,11 @@
 const _ = require('lodash');
 const Promise = require('bluebird');
-const redis = require('redis');
+const Redis = require('ioredis');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
-// const Decimal = require('decimal.js');
-// const {inspect} = require('../utils');
 // const config = require('../config');
 
-Promise.promisifyAll(redis.RedisClient.prototype);
-Promise.promisifyAll(redis.Multi.prototype);
-
-const client = redis.createClient();
+const client = new Redis();
 
 client.on('error', function error(err) {
   log.error('Redis error', err);
@@ -28,16 +23,17 @@ client.on('ready', function ready() {
   log.info('Redis client ready');
 });
 
-module.exports.get = async key => client.getAsync(key);
+module.exports.get = async key => client.get(key);
 
 module.exports.getObj = async key => {
-  let res = await client.getAsync(key);
+  let res = await client.get(key);
   if(res === null) return res;
   try {
     res = JSON.parse(res);
   } catch(err) {
     log.warn('Error parsing object', typeof res, res);
   }
+  log.warn('Getting Obj :', res);
   return res;
 };
 
@@ -50,47 +46,36 @@ module.exports.set = (key, val) => {
     }
   }
   log.warn(`Setting ${key} = ${val}`);
-  return client.setAsync(key, val);
+  return client.set(key, val);
 };
 
-module.exports.updateBalance = (key, val) => client.setAsync(key, val);
-
-module.exports.pushTxToAddr = (key, txid, obj) => {
-  if(_.isObject(obj)) {
-    try {
-      obj = JSON.stringify(obj);
-    } catch(err) {
-      return Promise.resolve('Error stringify object -', obj);
-    }
-  }
-  return client.hsetAsync(key, txid, obj);
-};
-
-module.exports.spendTxAddr = async (addr, txid) => {
-  let utxObj;
-  const utx = await client.hgetAsync(`addr:utxs:${addr}`, txid);
-  if(!utx) return Promise.reject('UTXO key [tx] not found for address [addr]', txid, addr);
-
-  try {
-    utxObj = JSON.parse(utx);
-  } catch(err) {
-    return Promise.reject('Error parsing object', utxObj);
-  }
-
-  return Promise.all([
-    // client.hsetAsync(`addr:txs:${addr}`, utxo),
-    // client.hdelAsync(`addr:utxs:${addr}`)
-  ]);
-};
+module.exports.updateBalance = (key, val) => client.set(key, val);
 
 module.exports.delUtxo = key => {
   log.warn('Removing', key);
-  return client.delAsync(key);
+  return client.del(key);
 };
 
-module.exports.getBalance = addr => client.getAsync(addr);
+module.exports.hincrby = (key, field, number) => client.hincrby(key, field, number);
+module.exports.hexists = (key, field) => client.hexists(key, field);
+module.exports.hset = (key, field, value) => client.hset(key, field, value);
+module.exports.hsetnx = (key, field, value) => client.hsetnx(key, field, value);
+/**
+ *  Returns the values associated with the specified fields in the hash stored at key
+ * @param {string} key 
+ * @param {array} fields
+ * @returns {Promise<array>}
+ */
+module.exports.hmget = (key, fields) => client.hmget(key, fields);
+module.exports.hmset = (key, fields) => client.hmset(key, fields);
 
-module.exports.getCurrentBlock = () => client.getAsync('current-block');
-module.exports.setCurrentBlock = block => client.setAsync('current-block', block);
+module.exports.sadd = (key, field) => client.sadd(key, field);
+module.exports.srem = (key, field) => client.srem(key, field);
+
+module.exports.hgetall = key => client.hgetall(key);
+module.exports.getBalance = addr => client.get(addr);
+
+module.exports.getCurrentBlock = () => client.get('current-block');
+module.exports.setCurrentBlock = block => client.set('current-block', block);
 
 module.exports.client = client;

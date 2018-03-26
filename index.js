@@ -8,18 +8,8 @@ const blockProcessService = require('./services/blockProcessService');
 const db = require('./utils/redis');
 
 // const {inspect} = require('./utils');
-
-// const bitcore = require('bitcore');
-// const RpcClient = require('bitcoind-rpc');
-// const client = require('bitcoind-rpc');
-
-// const saveBlockHeight = currentBlock =>
-//   blockModel.findOneAndUpdate({network: cfg.network}, {
-//     $set: {
-//       block: currentBlock,
-//       created: Date.now()
-//     }
-//   }, {upsert: true});
+log.level(0);
+log.info('Login level:', log.level());
 
 const init = async () => {
   let lastBlockHeight = 0;
@@ -30,12 +20,9 @@ const init = async () => {
     try {
       log.info('Block#', currentBlock);
       let processed = await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
-      // console.log(inspect(processed));
 
-      // if (currentBlock > 6610) process.exit();
-      // if (currentBlock == 102) currentBlock = 5450;
       await db.setCurrentBlock(currentBlock);
-      
+
       currentBlock++;
       processBlock();  
     } catch(err) {
