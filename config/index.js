@@ -2,9 +2,6 @@ require('dotenv').config();
 
 module.exports = {
   network: process.env.NETWORK || 'mainnet',
-  mongo: {
-    uri: process.env.MONGO_URI || 'mongodb://localhost:27017/bitbay'
-  },
   redis: {
     host: 'localhost',
     port: 6379
