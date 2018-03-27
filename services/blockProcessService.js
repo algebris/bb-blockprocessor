@@ -12,6 +12,7 @@ module.exports = async (currentBlock) => {
   if (!blockHeight || blockHeight <= currentBlock)
     return Promise.reject({code: 0});
   
+  log.info('Block#', currentBlock);
   const blockHash = await client.blockHashById(currentBlock);
   const blockObj = await client.blockByHash(blockHash);
 

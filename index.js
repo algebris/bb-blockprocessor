@@ -18,9 +18,7 @@ const init = async () => {
   
   const processBlock = async () => {
     try {
-      log.info('Block#', currentBlock);
-      let processed = await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
-
+      await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
       await db.setCurrentBlock(currentBlock);
 
       currentBlock++;

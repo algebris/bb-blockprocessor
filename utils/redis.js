@@ -3,9 +3,9 @@ const Promise = require('bluebird');
 const Redis = require('ioredis');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
-// const config = require('../config');
+const cfg = require('../config');
 
-const client = new Redis();
+const client = new Redis(cfg.redisUrl);
 
 client.on('error', function error(err) {
   log.error('Redis error', err);
