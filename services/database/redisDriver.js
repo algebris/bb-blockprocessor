@@ -3,7 +3,7 @@ const Promise = require('bluebird');
 const Redis = require('ioredis');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
-const cfg = require('../config');
+const cfg = require(`${APP_DIR}/config`);
 
 const client = new Redis(cfg.redisUrl);
 
@@ -56,26 +56,26 @@ module.exports.delUtxo = key => {
   return client.del(key);
 };
 
-module.exports.hincrby = (key, field, number) => client.hincrby(key, field, number);
-module.exports.hexists = (key, field) => client.hexists(key, field);
-module.exports.hset = (key, field, value) => client.hset(key, field, value);
-module.exports.hsetnx = (key, field, value) => client.hsetnx(key, field, value);
 /**
  *  Returns the values associated with the specified fields in the hash stored at key
  * @param {string} key 
  * @param {array} fields
  * @returns {Promise<array>}
  */
-module.exports.hmget = (key, fields) => client.hmget(key, fields);
-module.exports.hmset = (key, fields) => client.hmset(key, fields);
 
-module.exports.sadd = (key, field) => client.sadd(key, field);
-module.exports.srem = (key, field) => client.srem(key, field);
-
-module.exports.hgetall = key => client.hgetall(key);
 module.exports.getBalance = addr => client.get(addr);
 
-module.exports.getCurrentBlock = () => client.get('current-block');
-module.exports.setCurrentBlock = block => client.set('current-block', block);
+module.exports.getCurrentBlock = async () => {
+  let latestHash = await client.zrange('block-chain', -1, -1);
+  const hash = latestHash.shift();
+  if(hash) {
+    const id = await client.zscore('block-chain', hash);
+    return id;
+  }
+};
+
+module.exports.setCurrentBlock = async (score, hash) => {
+  const id = await client.zadd('block-chain', score, hash);
+};
 
 module.exports.client = client;

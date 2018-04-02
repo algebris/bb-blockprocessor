@@ -1,11 +1,10 @@
 const _ = require('lodash');
-// const Promise = require('bluebird');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'utils.client'});
-const cfg = require('../config');
 const RpcClient = require('bitcoin-core');
+const cfg = require(`${APP_DIR}/config`);
 
-class Client {
+class RpcDriver {
   constructor(opts) {
     opts = opts || cfg.rpc || (log.error('Config setup error') && process.exit(1));
     this.instance = new RpcClient(opts);
@@ -14,6 +13,7 @@ class Client {
     return this.instance.getBlockCount();
   }
   blockHashById(id) {
+    console.log('getblockhash-call:',id);
     return this.instance.command('getblockhash', id);
   }
   blockByHash(hash) {
@@ -29,4 +29,4 @@ class Client {
   }
 }
 
-module.exports = new Client();
+module.exports = RpcDriver;

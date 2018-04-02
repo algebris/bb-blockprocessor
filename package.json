@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "redis-cli flushall && nodemon index.js | ./node_modules/bunyan/bin/bunyan -o short",
+    "start": "nodemon index.js | ./node_modules/bunyan/bin/bunyan -o short",
+    "flush-start": "redis-cli flushall && nodemon index.js | ./node_modules/bunyan/bin/bunyan -o short",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -16,6 +17,7 @@
     "decimal.js": "^10.0.0",
     "dotenv": "^5.0.1",
     "ioredis": "^3.2.2",
-    "lodash": "^4.17.5"
+    "lodash": "^4.17.5",
+    "require-all": "^2.2.0"
   }
 }

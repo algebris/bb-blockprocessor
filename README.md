@@ -14,6 +14,9 @@ https://github.com/algebris/bb-rest-api
 
 ## Pre-requisites
 
+sudo apt-get install build-essential
+
+
 ### Make sure you installed latest Node.js
 
 https://nodejs.org/en/download/

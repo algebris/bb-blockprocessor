@@ -1,4 +1,7 @@
 module.exports = {
+    "globals": {
+        ["APP_DIR", "SRV_DIR"]: true
+    },
     "env": {
         "es6": true,
         "node": true
