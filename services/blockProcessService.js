@@ -3,7 +3,6 @@ const Promise = require('bluebird');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.blockProcessor'});
 const client = require('../utils/client');
-const Block = require('../utils/block');
 const db = require('../utils/redis');
 
 module.exports = async (currentBlock) => {
@@ -18,9 +17,8 @@ module.exports = async (currentBlock) => {
 
   if (!blockObj) 
     return Promise.reject({code: 0});
-    
-  const block = new Block(blockObj); 
-  const txs = await block.fetchBlockTxs();
+  
+  const txs = blockObj['tx'];
   
   const process = async (txs) => {
     for(const tx of txs) {

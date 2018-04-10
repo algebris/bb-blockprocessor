@@ -15,9 +15,16 @@ class Client {
   }
   blockHashById(id) {
     return this.instance.command('getblockhash', id);
-  }
-  blockByHash(hash) {
-    return this.instance.command('getblock', hash);
+ }
+  async blockByHash(hash) {
+    const prep = this.instance.requester.prepare({method: 'getblock', parameters: [hash, true]});
+		const req = await this.instance.request.postAsync({
+			auth: this.instance.auth,
+			body: JSON.stringify(prep),
+			url: '/'
+		}).catch(err => console.log(err));
+		const result = JSON.parse(req[1]);
+    return result.result;
   }
   async fetchTxs(txs) {
     return await this.instance.command(this.batchTxs(txs));
