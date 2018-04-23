@@ -14,7 +14,7 @@ class Block {
     if(!_.isNumber(parseInt(this.height)))
       throw new Error('Block Id is not defined or not number');
 
-    const hash = await bc.blockHashById(this.height)
+      const hash = await bc.blockHashById(this.height)
       .catch(err => err);
 
     const block = await bc.blockByHash(hash)

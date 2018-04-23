@@ -15,12 +15,16 @@ log.info('Login level:', log.level());
 
 const init = async () => {
   let lastBlockHeight = 0;
-  let currentBlock = await db.getCurrentBlock() || 1606360;
+  let currentBlock = await db.getCurrentBlock();
+  currentBlock = parseInt(currentBlock, 10) || 0;
+  currentBlock++;
   log.info(`Search from block ${currentBlock} for network:${cfg.network}`);
-  
+
   const processBlock = async () => {
     try {
-      await Promise.resolve(blockProcessService(currentBlock)).timeout(20000);
+      await Promise.resolve(blockProcessService.run(currentBlock)).timeout(20000);
+      
+      // if(currentBlock > 1632260) process.exit(0);
 
       currentBlock++;
       processBlock();  
@@ -34,14 +38,7 @@ const init = async () => {
         if (lastBlockHeight !== currentBlock)
           log.info('Awaiting for next block');
 
-        lastBlockHeight = currentBlock;
-        return setTimeout(processBlock, 3000);
-      }
-      if (_.get(err, 'code') === 1) {
-        if (lastBlockHeight !== currentBlock)
-          log.info('ORPHAN BLOCK', currentBlock);
-
-        lastBlockHeight = currentBlock;
+          lastBlockHeight = currentBlock;
         return setTimeout(processBlock, 3000);
       }
 

@@ -1,6 +1,7 @@
-module.exports = {
+const config = {
     "globals": {
-        ["APP_DIR", "SRV_DIR"]: true
+        "APP_DIR": true,
+        "SRV_DIR": true
     },
     "env": {
         "es6": true,
@@ -30,3 +31,5 @@ module.exports = {
         ]
     }
 };
+
+module.exports = config;

@@ -4,113 +4,185 @@ const log = bunyan.createLogger({name: 'core.blockProcessor'});
 const db = require(`${SRV_DIR}/database`).redis;
 const cfg = require(`${APP_DIR}/config`);
 
-const convertToSatoshi = amount => parseInt(parseFloat(amount).toFixed(8).toString().replace('.', ''));  
+const convertToSatoshi = val => parseInt(parseFloat(val).toFixed(8).toString().replace('.', ''));
+const hasValidOuts = val => ['nonstandard', 'nulldata'].indexOf(val.type) == -1;
 const groupByAddr = arr => _.chain(arr)
   .groupBy('addr')
-  .map((group, key) => ({addr: key, amount: _.sumBy(group, 'amount')}))
+  .map((group, key) => ({addr: key, val: _.sumBy(group, 'val')}))
   .value();
+  
+const normalizeTx = tx => {
+  let {vin, vout} = [];
+  const {txid, time} = tx;
+
+  const flattenScript = (a, v, k) => {
+    if(k == 'scriptPubKey') {
+      a = _.merge(a, v);
+      if(a.addresses) 
+        a.addresses = a.addresses.shift();
+    } else 
+      a[k] = v;
+  };
+
+  vin = _.chain(tx)
+    .get('vin', [])
+    .transform((acc, tin) => {
+      const mapKeys = {
+        'txid': 'id',
+        'vout': 'n'
+      };
+      if(tin.coinbase)
+        acc.push({addr: 'coinbase', val: 0});
+
+      if(tin.txid && _.isNumber(tin.vout))
+        acc.push(
+          _.chain(tin)
+            .pick(['txid', 'vout'])
+            .mapKeys((v, k) => mapKeys[k])
+            .value()
+          );
+    }).value();
+  
+  vout = _.chain(tx)
+    .get('vout', [])
+    .transform((acc, out) => {
+      const mapKeys = {
+        'value': 'val',
+        'addresses': 'addr',
+        'type': 'type',
+        'n':'n'
+      };
+      acc.push(
+        _.chain(out)
+          .pick(['value', 'n', 'scriptPubKey.type', 'scriptPubKey.addresses[0]'])
+          .transform(flattenScript)
+          .mapKeys((v, k) => mapKeys[k])
+          .update('val', convertToSatoshi)
+          .value()
+      );
+    }).value();
+
+  return {txid, time, vin, vout};
+};
 
 /**
  * Processing INS
  * @param {array} tx Transaction's object
+ * @param {number} height Height of blocks
+ * @param {boolean} shouldUpdate
  */
-const filterIns = async tx => {
-  let arrVin = [];
+const processIns = async (tx, height, shouldUpdate) => {
+  let result = [];
+  const summarize = (result, out) => _.add(result, out.val);
+
   for (const vin of tx.vin) {
-    if(vin.coinbase) {
-      let amount = 0;
-      // If coinbase input then return sum of all outputs
-      tx.vout.forEach(vout => {
-        const pk = vout.scriptPubKey;
-        if (pk.type != 'nonstandard' && pk.type != 'nulldata') {
-          amount += convertToSatoshi(vout.value);
-          arrVin.push({addr: 'coinbase', amount});
-        }
-      });
+    if(vin.addr == 'coinbase') {
+      const val = _.chain(tx.vout)
+        .filter(hasValidOuts)
+        .reduce(summarize, 0)
+        .value();
+      result.push({addr: 'coinbase', val});
     } else {
-      let fout = await db.client.get(`utxo:${vin.txid}:${vin.vout}`);
-      fout = JSON.parse(fout);
-
-      if(fout) {
-        await db.client.pipeline()
-          .del(`utxo:${vin.txid}:${vin.vout}`)
-          .hdel(`addr.utxo:${fout.addr}`, `${vin.txid}:${vin.vout}`)
-          .exec();
-
-        arrVin.push({addr: fout.addr, amount: fout.amount});
+      let fout = await db.client.hget(`utxo:${vin.id}:${vin.n}`, 'json');
+      if(fout !== null) {
+        let utxo;
+        try {
+          utxo = JSON.parse(fout);
+        } catch(err) {
+          log.error(`Error parsing utxo:${vin.id}:${vin.n}, json =${fout}`);
+        }
+        if(utxo && shouldUpdate)
+          await db.client.pipeline()
+            .hdel(`utxo:${vin.id}:${vin.n}`)
+            .lrem(`addr.utxo:${utxo.addr}`, 0, `${vin.id}:${vin.n}`)
+            // .zadd(`addr.txs:${utxo.addr}`, height, `${vin.id}:${vin.n}`)
+            .exec();
+        if(utxo) 
+          result.push(utxo);
       } else {
-        log.error(`DB missed TX [currentBlock=${currentBlock}, txId=utxo:${vin.txid}:${vin.vout}]`);
+        log.error(`DB missed TX [txId=utxo:${vin.id}:${vin.n}]`);
       }
     }
   }
-  return groupByAddr(arrVin);
+  console.log({result});
+  return groupByAddr(result);
 };
 
 /**
  * Processing OUTS
  * @param {array} tx Transaction's object
  * @param {array} vin Processed input object
+ * @param {boolean} shouldUpdate
  */
-const filterOuts = async (tx, vin, currentBlock) => {
-  let arrVout = [];
+const processOuts = async (tx, vin, shouldUpdate) => {
+  let result = [];
   let nvin = Array.from(vin);
-  for (const vout of tx.vout) {
-    const pk = vout.scriptPubKey;
-    
-    // Process valid output
-    if (pk.type != 'nonstandard' && pk.type != 'nulldata') {
-      const amount = convertToSatoshi(vout.value);
-      const addr = pk.addresses[0];
-      const obj = JSON.stringify({addr, amount, height: currentBlock});
+  let staked = false;
 
-      await db.client.pipeline()
-        .set(`utxo:${tx.txid}:${vout.n}`, obj) // save Utxo
-        .hset(`addr.utxo:${addr}`, `${tx.txid}:${vout.n}`, obj)
+  for (const vout of tx.vout) {
+    const pair = _.pick(vout, ['addr', 'val']) || {};
+    if(hasValidOuts && _.keys(pair).length == 2) {
+      if(shouldUpdate) {
+        await db.client.pipeline()
+        .hmset(`utxo:${tx.txid}:${vout.n}`, _.assign(pair, {json: JSON.stringify(pair)}))
+        .rpush(`addr.utxo:${vout.addr}`, `${tx.txid}:${vout.n}`)
         .exec();
-      
-      arrVout.push({addr, amount});
+      }
+      result.push(pair);
     }
-    // Group addresses and it's amounts
-    arrVout = groupByAddr(arrVout);
+    console.log({result, nvin});
+    result = groupByAddr(result);
   }
-  // Calculate balance for PoS blocks 
-  if(tx.vout[0].scriptPubKey.type == 'nonstandard' && arrVout.length > 0 && nvin.length > 0 && nvin[0].addr == arrVout[0].addr) {
-    arrVout[0].amount -= nvin[0].amount;
+  if(tx.vout[0].type == 'nonstandard' && result.length > 0 && nvin.length > 0 && nvin[0].addr == result[0].addr) {
+    result[0].val -= nvin[0].val;
     nvin.shift();
+    staked = true;
   }
-  return {vout: arrVout, nvin};
+  return {vout: result, nvin, staked};
 };
 
 /**
  * Update account's balances
- * @param {string} addr
- * @param {string} txid 
- * @param {number} amount 
- * @param {string} type 
+ * @param {object} args arguments {addr, amount, type}
  */
-const updateAddress = async (addr, amount, type) => {
+const updateAddress = async args => {
+  const {addr, val, type, txid, isStaked} = args;
   if ( addr == 'coinbase' ) {
-    return await db.client.hincrby('coinbase', 'sent', amount);
+    return await db.client.hincrby('coinbase', 'sent', val);
   }
-  let [sent, received] = await db.client.hmget(`addr:${addr}`, ['sent', 'received']);
+  let [sent, received, staked] = await db.client.hmget(`addr:${addr}`, ['sent', 'received', 'staked']);
   sent = parseInt(sent) || 0;
   received = parseInt(received) || 0;
+  staked = parseInt(staked) || 0;
 
-  if (type == 'vin') {
-    sent += amount;
-  } else {
-    received += amount;
+  if (type == 'vin' && !isStaked)
+    sent += val;
+  else if (type == 'vout' && !isStaked)
+    received += val;
+  else if (type == 'vout' && isStaked)
+    staked += val;
+
+  const balance = received + staked - sent;
+  const result = {sent, received, staked, balance};
+
+  await db.client.hmset(`addr:${addr}`, result);
+  
+  if(type == 'vin')
+    await db.client.rpush(`addr.sent:${addr}`, txid);
+
+  if(type == 'vout' && !isStaked) {
+    await db.client.rpush(`addr.received:${addr}`, txid);
   }
-  const balance = received - sent;
-
-  // await db.hsetnx(`addr:${addr}`, `tx:${currentBlock}:${txid}:${type}`, JSON.stringify({amount}));
-  await db.client.hmset(`addr:${addr}`, {sent, received, balance});
-  // await db.hset('blocklog', `${currentBlock}:${blockHash}`, );
+  if(type == 'vout' && isStaked) {
+    await db.client.rpush(`addr.staked:${addr}`, txid);
+  }
+  return _.assign(result, {val});
 };
 
 module.exports = {
   convertToSatoshi,
-  filterIns,
-  filterOuts,
-  updateAddress
+  updateAddress,
+  normalizeTx,
+  processIns,
+  processOuts
 };
