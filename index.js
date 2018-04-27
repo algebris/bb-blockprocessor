@@ -24,7 +24,7 @@ const init = async () => {
     try {
       await Promise.resolve(blockProcessService.run(currentBlock)).timeout(20000);
       
-      // if(currentBlock > 1632260) process.exit(0);
+      // if(currentBlock > 1634584) process.exit(0);
 
       currentBlock++;
       processBlock();  
@@ -40,6 +40,11 @@ const init = async () => {
 
           lastBlockHeight = currentBlock;
         return setTimeout(processBlock, 3000);
+      }
+      if (err.code == 1 && err.block) {
+        currentBlock = err.block++;
+        log.info('Connecting from', currentBlock);
+        return processBlock()
       }
 
       currentBlock++;

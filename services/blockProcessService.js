@@ -75,25 +75,25 @@ const run = async currentBlock => {
     if (block.nextblockhash)
       blockMeta.nextblockhash = block.nextblockhash;
     
-    const pl = db.client.pipeline();
-    pl.zadd('block-chain', currentBlock, block.hash);
-    pl.hmset(`block:${block.hash}`, blockMeta);
+    await db.client.pipeline()
+      .zadd('block-chain', currentBlock, block.hash)
+      .hmset(`block:${block.hash}`, blockMeta)
+      .hset(`block:${block.previousblockhash}`, 'nextblockhash', block.hash)
+      .exec();
+
     // await reorgService.updateBlockBuffer(block, pl);
-    await pl.exec();
-
     // const txs = await block.fetchBlockTxs();
+    
     const txs = block.tx;
-
     if(txs && txs.length > 0) {
       const processed = await processTxs(txs, currentBlock).catch(err => log.error(err));
       console.log(utils.inspect(processed));
     }
   } else {
     log.warn('Reorg!');
-    const point = await reorgService.searchConvergencePoint(block.previousblockhash).catch(err => log.error(err));
-    console.log(point);
-    // const res = await reorgService.reindex(point);
-    // console.log(res);
+    const point = await reorgService.seekOutdatedBlocks(block.previousblockhash).catch(err => log.error(err));
+    const res = await reorgService.reindex(point).catch(err => log.error(err));
+    return Promise.reject({code: 1, block: point});
   }
 };
 

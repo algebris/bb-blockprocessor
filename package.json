@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon index.js | ./node_modules/bunyan/bin/bunyan -o short",
-    "flush-start": "redis-cli flushall && nodemon index.js | ./node_modules/bunyan/bin/bunyan -o short",
+    "start": "nodemon index.js| ./node_modules/bunyan/bin/bunyan -o short",
+    "flush-start": "redis-cli flushall && nodemon index.js| ./node_modules/bunyan/bin/bunyan -o short",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

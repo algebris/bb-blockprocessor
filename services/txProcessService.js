@@ -104,7 +104,7 @@ const processIns = async (tx, height, shouldUpdate) => {
       }
     }
   }
-  console.log({result});
+  // console.log({result});
   return groupByAddr(result);
 };
 
@@ -124,13 +124,13 @@ const processOuts = async (tx, vin, shouldUpdate) => {
     if(hasValidOuts && _.keys(pair).length == 2) {
       if(shouldUpdate) {
         await db.client.pipeline()
-        .hmset(`utxo:${tx.txid}:${vout.n}`, _.assign(pair, {json: JSON.stringify(pair)}))
-        .rpush(`addr.utxo:${vout.addr}`, `${tx.txid}:${vout.n}`)
-        .exec();
+          .hmset(`utxo:${tx.txid}:${vout.n}`, _.assign(pair, {json: JSON.stringify(pair)}))
+          .rpush(`addr.utxo:${vout.addr}`, `${tx.txid}:${vout.n}`)
+          .exec();
       }
       result.push(pair);
     }
-    console.log({result, nvin});
+    // console.log({result, nvin});
     result = groupByAddr(result);
   }
   if(tx.vout[0].type == 'nonstandard' && result.length > 0 && nvin.length > 0 && nvin[0].addr == result[0].addr) {
