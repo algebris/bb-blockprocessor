@@ -3,10 +3,9 @@ global.SRV_DIR = `${APP_DIR}/services`;
 
 const _ = require('lodash');
 const Promise = require('bluebird');
-const bunyan = require('bunyan');
-
 const cfg = require(`${APP_DIR}/config`);
-const log = bunyan.createLogger({name: 'core.blockProcessor'});
+const log = require(`${APP_DIR}/utils/logging`)({name:'core.blockProcessor'});
+
 const blockProcessService = require(`${SRV_DIR}/blockProcessService`);
 const db = require(`${SRV_DIR}/database`).redis;
 
@@ -31,6 +30,8 @@ const init = async () => {
     } catch(err) {
       if (err instanceof Promise.TimeoutError) {
         log.error('Timeout processing the block');
+        
+        currentBlock++;
         return processBlock();
       }
 
@@ -42,9 +43,9 @@ const init = async () => {
         return setTimeout(processBlock, 3000);
       }
       if (err.code == 1 && err.block) {
-        currentBlock = err.block++;
+        currentBlock = ++err.block;
         log.info('Connecting from', currentBlock);
-        return processBlock()
+        return processBlock();
       }
 
       currentBlock++;

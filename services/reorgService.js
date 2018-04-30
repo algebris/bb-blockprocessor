@@ -39,6 +39,9 @@ const SHOULDNT_UPDATE = 2;
 const processIns = async (tx, height, shouldUpdate) => {
   let result = [];
   const summarize = (result, out) => _.add(result, out.val);
+  
+  if(_.isEmpty(tx.vin)) return [];
+  
   for (const vin of tx.vin) {
     if (vin.addr == 'coinbase') {
       const val = _.chain(tx.vout)

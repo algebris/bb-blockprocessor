@@ -1,7 +1,8 @@
 const _ = require('lodash');
 const Promise = require('bluebird');
-const bunyan = require('bunyan');
-const log = bunyan.createLogger({name: 'core.blockProcessor'});
+// const bunyan = require('bunyan');
+// const log = bunyan.createLogger({name: 'core.blockProcessor'});
+const log = require(`${APP_DIR}/utils/logging`)({name:'core.blockProcessor'});
 const utils = require(`${APP_DIR}/utils`);
 const Block = require(`${SRV_DIR}/Block`);
 const db = require(`${SRV_DIR}/database`).redis;
@@ -27,7 +28,6 @@ const processTxs = async (txs, height) => {
     const {vout, nvin, staked} = await txService.processIns(tx, height, true)
       .then(ins => txService.processOuts(tx, ins, true));
     console.log({vout, nvin, staked});
-
     for (const ni of nvin) {
       const _nvin = await txService.updateAddress({addr: ni.addr, val: ni.val, txid: tx.txid, type: 'vin'});
       arr.push(_nvin);
@@ -49,7 +49,7 @@ const processTxs = async (txs, height) => {
 const run = async currentBlock => {
   currentBlock = parseInt(currentBlock, 10);
   const blockHeight = await bc.blockCount();
-
+  
   if (!blockHeight || blockHeight < currentBlock)
     return Promise.reject({code: 0});
   
@@ -62,7 +62,7 @@ const run = async currentBlock => {
   
   let latestHash = await db.client.zrange('block-chain', -1, -1);
   latestHash = latestHash.shift() || 0;
-
+  
   if(latestHash == 0 || latestHash === block.previousblockhash) {
     // update blockchain info
     let blockMeta = {
