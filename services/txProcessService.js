@@ -1,6 +1,7 @@
 const _ = require('lodash');
-const bunyan = require('bunyan');
-const log = bunyan.createLogger({name: 'core.blockProcessor'});
+// const bunyan = require('bunyan');
+// const log = bunyan.createLogger({name: 'core.blockProcessor'});
+const log = require(`${APP_DIR}/utils/logging`)({name:'txProcessService'});
 const db = require(`${SRV_DIR}/database`).redis;
 const cfg = require(`${APP_DIR}/config`);
 
@@ -97,8 +98,8 @@ const processIns = async (tx, height, shouldUpdate) => {
             .lrem(`addr.utxo:${utxo.addr}`, 0, `${vin.id}:${vin.n}`)
             // .zadd(`addr.txs:${utxo.addr}`, height, `${vin.id}:${vin.n}`)
             .exec();
-        if(utxo) 
-          result.push(utxo);
+        if(utxo)
+          result.push(_.pick(utxo, ['addr', 'val']));
       } else {
         log.error(`DB missed TX [txId=utxo:${vin.id}:${vin.n}]`);
       }
@@ -114,15 +115,16 @@ const processIns = async (tx, height, shouldUpdate) => {
  * @param {array} vin Processed input object
  * @param {boolean} shouldUpdate
  */
-const processOuts = async (tx, vin, shouldUpdate) => {
+const processOuts = async (tx, vin, height, shouldUpdate) => {
   let result = [];
   let nvin = Array.from(vin);
   let staked = false;
 
   for (const vout of tx.vout) {
-    const pair = _.pick(vout, ['addr', 'val']) || {};
-    if(hasValidOuts && _.keys(pair).length == 2) {
+    let pair = _.pick(vout, ['addr', 'val']) || {};
+    if(hasValidOuts(vout) && _.keys(pair).length == 2) {
       if(shouldUpdate) {
+        pair = _.assign(pair, {txid:tx.txid, height, n:vout.n, time:tx.time});
         await db.client.pipeline()
           .hmset(`utxo:${tx.txid}:${vout.n}`, _.assign(pair, {json: JSON.stringify(pair)}))
           .rpush(`addr.utxo:${vout.addr}`, `${tx.txid}:${vout.n}`)

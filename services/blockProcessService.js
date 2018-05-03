@@ -26,8 +26,10 @@ const processTxs = async (txs, height) => {
     log.info('Processing tx#', tx.txid);
     tx = txService.normalizeTx(tx);
     const {vout, nvin, staked} = await txService.processIns(tx, height, true)
-      .then(ins => txService.processOuts(tx, ins, true));
+      .then(ins => txService.processOuts(tx, ins, height, true));
+    
     console.log({vout, nvin, staked});
+    
     for (const ni of nvin) {
       const _nvin = await txService.updateAddress({addr: ni.addr, val: ni.val, txid: tx.txid, type: 'vin'});
       arr.push(_nvin);
