@@ -1,0 +1,15 @@
+{
+  "apps": [{
+    "name": "blockprocessor",
+    "script": "index.js",
+    "watch": false,
+    "cwd": "/srv/bb-blockprocessor",
+    "out_file": "log/blockprocessor.stdout.log",
+    "env": {
+      "NODE_ENV": "production",
+      "RPC_USER": "bit1b4yRpc",
+      "RPC_PORT": 19913,
+      "RPC_PASSWD": "3SngHrSJrAexX7Y2oK2uwU76dekVAtQ8J8snQM1KEft3"
+    }
+  }]
+}
