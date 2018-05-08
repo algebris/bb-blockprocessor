@@ -9,6 +9,10 @@ const log = require(`${APP_DIR}/utils/logging`)({name:'core.blockProcessor'});
 const blockProcessService = require(`${SRV_DIR}/blockProcessService`);
 const db = require(`${SRV_DIR}/database`).redis;
 
+const mongoose = require('mongoose');
+mongoose.Promise = Promise;
+mongoose.connect(cfg.mongoUri, {useMongoClient: true});
+
 log.level(0);
 log.info('Login level:', log.level());
 

@@ -5,6 +5,7 @@ module.exports = {
   redisUrl: process.env.REDIS_URL || 'redis://127.0.0.1:6379/0',
   bcDriver: process.env.BC_DRIVER || 'rpc',
   blockBuffer: process.env.BLOCK_BUFFER || 200,
+  mongoUri: process.env.MONGO_URI || 'mongodb://localhost:27017/block-processor',
   rpc: {
     port: process.env.RPC_PORT || 8000,
     username: process.env.RPC_USER || '',

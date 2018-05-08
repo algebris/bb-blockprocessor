@@ -7,6 +7,7 @@ const log = require(`${APP_DIR}/utils/logging`)({name:'core.reorgService'});
 const txService = require(`${SRV_DIR}/txProcessService`);
 const BlockChain = require(`${SRV_DIR}/blockchain`)[cfg.bcDriver];
 const bc = new BlockChain();
+const TxModel = require(`${APP_DIR}/models/txModel`);
 
 const inspect = require(`${APP_DIR}/utils`).inspect;
 
@@ -51,9 +52,11 @@ const processIns = async (tx, height, shouldUpdate) => {
         .value();
       result.push({addr: 'coinbase', val});
     } else {
-      let out = await db.client.hget(`tx:${vin.id}`, 'json');
-      if(out !== null) {
-        out = JSON.parse(out);
+      // let out = await db.client.hget(`tx:${vin.id}`, 'json');
+      let out = await TxModel.findOne({txid: vin.id}, 'data');
+      out = _.get(out, 'data')
+      if(out) {
+        // out = JSON.parse(out);
         out = _.find(out.vout, {n:vin.n});
       }
       let obj = _.pick(out, ['addr', 'val']);
@@ -162,8 +165,9 @@ const reindex = async from => {
       .then(async txs => { // get list of transactions
         let txList = [];
         for (const txid of txs) {
-          let t = await db.client.hget(`tx:${txid}`, 'json');
-          txList.push(JSON.parse(t));
+          // let t = await db.client.hget(`tx:${txid}`, 'json');
+          let t = await TxModel.findOne({txid}, 'data');
+          txList.push(_.get(t, 'data'));
         }
         return txList;
       })
@@ -180,8 +184,8 @@ const reindex = async from => {
             console.log({addr: vo.addr, val:-vo.val, txid: tx.txid, type: 'vout', isStaked:staked});
             await updateAddress({addr: vo.addr, val:-vo.val, txid: tx.txid, type: 'vout', isStaked:staked});
           }
-          log.info(`Delete tx:${tx.txid}`);
-          await db.client.del(`tx:${tx.txid}`);
+          log.info(`Delete? tx:${tx.txid}`);
+          // await db.client.del(`tx:${tx.txid}`);
         }
       });
     log.info(`Delete block:${blkHash}`);

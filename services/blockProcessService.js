@@ -9,6 +9,7 @@ const db = require(`${SRV_DIR}/database`).redis;
 const cfg = require(`${APP_DIR}/config`);
 const txService = require(`${SRV_DIR}/txProcessService`);
 const reorgService = require(`${SRV_DIR}/reorgService`);
+const TxModel = require(`${APP_DIR}/models/txModel`);
 
 const BlockChain = require(`${SRV_DIR}/blockchain`)[cfg.bcDriver];
 const bc = new BlockChain();
@@ -38,8 +39,9 @@ const processTxs = async (txs, height) => {
       const _vout = await txService.updateAddress({addr: vo.addr, val: vo.val, txid: tx.txid, type: 'vout', isStaked:staked});
       arr.push(_vout)
     }
-    const obj = {id: tx.txid, time: tx.time, height, json: JSON.stringify(tx)};
-    await db.client.hmset(`tx:${tx.txid}`, obj);
+    // const obj = {id: tx.txid, time: tx.time, height, json: JSON.stringify(tx)};
+    // await db.client.hmset(`tx:${tx.txid}`, obj);
+    await TxModel.update({txid: tx.txid}, { height, time: tx.time, txid: tx.txid, data: tx }, {upsert: true});
   }
   return arr;
 };
