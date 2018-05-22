@@ -1,106 +1,71 @@
 const _ = require('lodash');
 const Promise = require('bluebird');
-// const bunyan = require('bunyan');
-// const log = bunyan.createLogger({name: 'core.blockProcessor'});
-const log = require(`${APP_DIR}/utils/logging`)({name:'core.blockProcessor'});
-const utils = require(`${APP_DIR}/utils`);
-const Block = require(`${SRV_DIR}/Block`);
-const db = require(`${SRV_DIR}/database`).redis;
 const cfg = require(`${APP_DIR}/config`);
+const bunyan = require('bunyan');
+const log = bunyan.createLogger({name: 'bp.index'});
+const db = require(`${SRV_DIR}/database`).redis;
 const txService = require(`${SRV_DIR}/txProcessService`);
 const reorgService = require(`${SRV_DIR}/reorgService`);
 const TxModel = require(`${APP_DIR}/models/txModel`);
+const TxLogModel = require(`${APP_DIR}/models/txLogModel`);
 
 const BlockChain = require(`${SRV_DIR}/blockchain`)[cfg.bcDriver];
 const bc = new BlockChain();
 
-/**
- * Process transactions within block
- * @param {array} txs transactions
- * @param {number} height current block
- * @returns {Promise<object>} processing result
- */
+const processNextBlock = async () => {
+  const height = this.blockHeight;
 
-const processTxs = async (txs, height) => {
-  let arr = [];
-  for(let tx of txs) {
+  for(let tx of this.block.tx) {
     log.info('Processing tx#', tx.txid);
     tx = txService.normalizeTx(tx);
     const {vout, nvin, staked} = await txService.processIns(tx, height, true)
       .then(ins => txService.processOuts(tx, ins, height, true));
     
     console.log({vout, nvin, staked});
-    
+
     for (const ni of nvin) {
-      const _nvin = await txService.updateAddress({addr: ni.addr, val: ni.val, txid: tx.txid, type: 'vin'});
-      arr.push(_nvin);
+      const data = await txService.updateAddress({addr: ni.addr, val: ni.val, txid: tx.txid, type: 'vin'});
+      await TxLogModel.create({type: 'vin', addr: ni.addr, height, txid: tx.txid, balance: data.balance, val: ni.val, data});
     }
     for (const vo of vout) {
-      const _vout = await txService.updateAddress({addr: vo.addr, val: vo.val, txid: tx.txid, type: 'vout', isStaked:staked});
-      arr.push(_vout)
+      const data = await txService.updateAddress({addr: vo.addr, val: vo.val, txid: tx.txid, type: 'vout', isStaked:staked});
+      await TxLogModel.create({type: 'vout', height, addr: vo.addr, txid: tx.txid, balance: data.balance, val: vo.val, data, staked});
     }
     // const obj = {id: tx.txid, time: tx.time, height, json: JSON.stringify(tx)};
     // await db.client.hmset(`tx:${tx.txid}`, obj);
-    await TxModel.update({txid: tx.txid}, { height, time: tx.time, txid: tx.txid, data: tx }, {upsert: true});
+    // const zz = await TxModel.update({txid: tx.txid}, { height, time: tx.time, txid: tx.txid, data: tx }, {upsert: true});
+    // console.log('**',zz, arr);
   }
-  return arr;
 };
 
-/**
- * Initial block-processor routine
- * @param {number} currentBlock
- */
-const run = async currentBlock => {
-  currentBlock = parseInt(currentBlock, 10);
-  const blockHeight = await bc.blockCount();
-  
-  if (!blockHeight || blockHeight < currentBlock)
-    return Promise.reject({code: 0});
-  
-  log.info('Block#', currentBlock);
-  let block = new Block(currentBlock);
-  await block.fetchBlockHeader();
-  
-  if (!block.hash)
-    return Promise.reject({code: 0});
-  
-  let latestHash = await db.client.zrange('block-chain', -1, -1);
-  latestHash = latestHash.shift() || 0;
-  
-  if(latestHash == 0 || latestHash === block.previousblockhash) {
-    // update blockchain info
-    let blockMeta = {
-      height: parseInt(currentBlock, 10),
-      time: block.time,
-      txs: JSON.stringify(_.map(block.tx, 'txid')),
-      previousblockhash: block.previousblockhash
-    };
+const run = async () => {
+  const latestBlock = await db.getLatestBlock(); // get latest processed block from DB
+  this.blockHeight = _.get(latestBlock, 'id', 0);  
+  this.networkHeight = await bc.blockCount(); // get latest block from network
 
-    if (block.nextblockhash)
-      blockMeta.nextblockhash = block.nextblockhash;
-    
-    await db.client.pipeline()
-      .zadd('block-chain', currentBlock, block.hash)
-      .hmset(`block:${block.hash}`, blockMeta)
-      .hset(`block:${block.previousblockhash}`, 'nextblockhash', block.hash)
-      .exec();
+  // End of block-chain. Waiting for next block.
+  if(this.blockHeight >= this.networkHeight) {
+    return {code:1, block: this.blockHeight};
+  }
 
-    // await reorgService.updateBlockBuffer(block, pl);
-    // const txs = await block.fetchBlockTxs();
-    
-    const txs = block.tx;
-    if(txs && txs.length > 0) {
-      const processed = await processTxs(txs, currentBlock).catch(err => log.error(err));
-      console.log(utils.inspect(processed));
-    }
+  this.blockHash = await bc.blockHashById(++this.blockHeight); // get block hash by id
+  this.block = await bc.blockByHash(this.blockHash); //get block data by hash
+  this.prevHash = await db.getPrevBlockHash(); //get latest block hash from DB
+
+  // Processing ordinary flow.
+  if(!latestBlock || this.prevHash === this.block.previousblockhash) {
+    log.info(`Processing block #${this.blockHeight}`);
+    await processNextBlock.call(this);
+    await db.setCurrentBlock(this.blockHeight, this.blockHash);
+    return {code: 0, block: this.block.height};
   } else {
-    log.warn('Reorg!');
-    const point = await reorgService.seekOutdatedBlocks(block.previousblockhash).catch(err => log.error(err));
-    const res = await reorgService.reindex(point).catch(err => log.error(err));
-    return Promise.reject({code: 1, block: point});
+    // Reorganisation
+    const reorg = await reorgService.seekOutdatedBlocks(this.block.previousblockhash);
+    return {code: 2, block: this.block.height};
   }
+  
 };
 
-module.exports = {
-  run
+module.exports = { 
+  run 
 };

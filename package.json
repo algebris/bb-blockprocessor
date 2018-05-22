@@ -1,7 +1,7 @@
 {
-  "name": "bb_block_explorer",
+  "name": "bb-bp",
   "version": "1.0.0",
-  "description": "",
+  "description": "BitBay wallet",
   "main": "index.js",
   "scripts": {
     "start": "nodemon index.js| ./node_modules/bunyan/bin/bunyan -o short",

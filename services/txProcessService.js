@@ -1,7 +1,6 @@
 const _ = require('lodash');
-// const bunyan = require('bunyan');
-// const log = bunyan.createLogger({name: 'core.blockProcessor'});
-const log = require(`${APP_DIR}/utils/logging`)({name:'txProcessService'});
+const bunyan = require('bunyan');
+const log = bunyan.createLogger({name: 'core.txProcessService'});
 const db = require(`${SRV_DIR}/database`).redis;
 const cfg = require(`${APP_DIR}/config`);
 
@@ -150,12 +149,20 @@ const processOuts = async (tx, vin, height, shouldUpdate) => {
 const updateAddress = async args => {
   const {addr, val, type, txid, isStaked} = args;
   if ( addr == 'coinbase' ) {
-    return await db.client.hincrby('coinbase', 'sent', val);
+    const balance = await db.client.hincrby('coinbase', 'sent', val);
+    return {addr: 'coinbase', balance, type};
   }
-  let [sent, received, staked] = await db.client.hmget(`addr:${addr}`, ['sent', 'received', 'staked']);
+  let [sent, received, staked, bal] = await db.client.hmget(`addr:${addr}`, ['sent', 'received', 'staked', 'balance']);
   sent = parseInt(sent) || 0;
   received = parseInt(received) || 0;
   staked = parseInt(staked) || 0;
+  bal = parseInt(bal) || 0;
+  let store = {
+    _sent: sent,
+    _received: received,
+    _staked: staked,
+    _balance: bal
+  };
 
   if (type == 'vin' && !isStaked)
     sent += val;
@@ -178,7 +185,8 @@ const updateAddress = async args => {
   if(type == 'vout' && isStaked) {
     await db.client.rpush(`addr.staked:${addr}`, txid);
   }
-  return _.assign(result, {val});
+
+  return _.assign(store, result, {type});
 };
 
 module.exports = {

@@ -1,63 +1,65 @@
 global.APP_DIR = __dirname;
 global.SRV_DIR = `${APP_DIR}/services`;
 
-const _ = require('lodash');
+// const _ = require('lodash');
+// const cfg = require(`${APP_DIR}/config`);
 const Promise = require('bluebird');
-const cfg = require(`${APP_DIR}/config`);
-const log = require(`${APP_DIR}/utils/logging`)({name:'core.blockProcessor'});
-
+const util = require('util');
+const bunyan = require('bunyan');
+const log = bunyan.createLogger({ name: 'bp.index' });
 const blockProcessService = require(`${SRV_DIR}/blockProcessService`);
+const mongo = require(`${SRV_DIR}/database`).mongo;
 const db = require(`${SRV_DIR}/database`).redis;
 
-const mongoose = require('mongoose');
-mongoose.Promise = Promise;
-mongoose.connect(cfg.mongoUri, {useMongoClient: true});
+const sleep = util.promisify(setTimeout);
+// const inspect = obj => util.inspect(obj, { showHidden: true, depth: null });
+let lastProcessedBlock;
 
-log.level(0);
-log.info('Login level:', log.level());
+const errorHandler = async err => {
+  if(err instanceof Promise.TimeoutError) {
+    log.info('Timeout Error')
+    await sleep(3000);
+    return processBlock();
+  }
+  log.error(err);
+  await sleep(3000);
+  return processBlock();
+};
 
-const init = async () => {
-  let lastBlockHeight = 0;
-  let currentBlock = await db.getCurrentBlock();
-  currentBlock = parseInt(currentBlock, 10) || 0;
-  currentBlock++;
-  log.info(`Search from block ${currentBlock} for network:${cfg.network}`);
-
-  const processBlock = async () => {
-    try {
-      await Promise.resolve(blockProcessService.run(currentBlock)).timeout(20000);
-      
-      // if(currentBlock > 1634584) process.exit(0);
-
-      currentBlock++;
-      processBlock();  
-    } catch(err) {
-      if (err instanceof Promise.TimeoutError) {
-        log.error('Timeout processing the block');
-        
-        currentBlock++;
-        return processBlock();
-      }
-
-      if (_.get(err, 'code') === 0) {
-        if (lastBlockHeight !== currentBlock)
-          log.info('Awaiting for next block');
-
-          lastBlockHeight = currentBlock;
-        return setTimeout(processBlock, 3000);
-      }
-      if (err.code == 1 && err.block) {
-        currentBlock = ++err.block;
-        log.info('Connecting from', currentBlock);
-        return processBlock();
-      }
-
-      currentBlock++;
-      processBlock();  
+const resultHandler = async res => {
+  if(res && res.code === 1) {
+    if(lastProcessedBlock !== res.block) {
+      log.info('Awaiting for next block');
     }
-  };
+    await sleep(3000);
+    lastProcessedBlock = res.block;
+    processBlock();
+  }
+  if(res && res.code === 0) {
+    log.info(res);
+    // await sleep(3000);
+    processBlock();
+  }
+  if(res.code === 2) {
+    log.info('Reorg');
+  }
+};
 
+const processBlock = async () => {
+  await blockProcessService.run()
+    .then(resultHandler)
+    .catch(errorHandler);
+};
+
+const run = async () => {
+  await mongo();
+  const latestBlock = await db.getLatestBlock();
+  if(!latestBlock) {
+    log.info(`Sync started`);
+  } else {
+    log.info(`Latest synced block = ${latestBlock.id}`);
+  }
   processBlock();
 };
 
-module.export = init();
+module.export = run();
