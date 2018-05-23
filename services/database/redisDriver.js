@@ -32,7 +32,6 @@ module.exports.getLatestBlock = async () => {
   const hash = latestHash.shift();
   if(hash) {
     const id = await client.zscore('block-chain', hash);
-
     return {id: parseInt(id, 10), hash};
   }
 };

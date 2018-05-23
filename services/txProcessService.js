@@ -2,7 +2,7 @@ const _ = require('lodash');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.txProcessService'});
 const db = require(`${SRV_DIR}/database`).redis;
-const cfg = require(`${APP_DIR}/config`);
+// const cfg = require(`${APP_DIR}/config`);
 
 const convertToSatoshi = val => parseInt(parseFloat(val).toFixed(8).toString().replace('.', ''));
 const hasValidOuts = val => ['nonstandard', 'nulldata'].indexOf(val.type) == -1;
@@ -73,6 +73,7 @@ const normalizeTx = tx => {
  */
 const processIns = async (tx, height, shouldUpdate) => {
   let result = [];
+  let inputs = [];
   const summarize = (result, out) => _.add(result, out.val);
 
   for (const vin of tx.vin) {
@@ -95,17 +96,17 @@ const processIns = async (tx, height, shouldUpdate) => {
           await db.client.pipeline()
             .hdel(`utxo:${vin.id}:${vin.n}`)
             .lrem(`addr.utxo:${utxo.addr}`, 0, `${vin.id}:${vin.n}`)
-            // .zadd(`addr.txs:${utxo.addr}`, height, `${vin.id}:${vin.n}`)
             .exec();
-        if(utxo)
+        if(utxo) {
           result.push(_.pick(utxo, ['addr', 'val']));
+          inputs.push(_.assign(_.omit(utxo, ['json', 'txid', 'height'])));
+        }
       } else {
         log.error(`DB missed TX [txId=utxo:${vin.id}:${vin.n}]`);
       }
     }
   }
-  // console.log({result});
-  return groupByAddr(result);
+  return {result: groupByAddr(result), utxo:inputs};
 };
 
 /**
@@ -116,7 +117,8 @@ const processIns = async (tx, height, shouldUpdate) => {
  */
 const processOuts = async (tx, vin, height, shouldUpdate) => {
   let result = [];
-  let nvin = Array.from(vin);
+  let utxo = [];
+  let nvin = Array.from(vin.result);
   let staked = false;
 
   for (const vout of tx.vout) {
@@ -129,6 +131,7 @@ const processOuts = async (tx, vin, height, shouldUpdate) => {
           .rpush(`addr.utxo:${vout.addr}`, `${tx.txid}:${vout.n}`)
           .exec();
       }
+      utxo.push(_.assign(_.omit(pair, ['json', 'txid', 'height'])));
       result.push(pair);
     }
     // console.log({result, nvin});
@@ -139,7 +142,7 @@ const processOuts = async (tx, vin, height, shouldUpdate) => {
     nvin.shift();
     staked = true;
   }
-  return {vout: result, nvin, staked};
+  return {vout: result, nvin, staked, utxoIn: vin.utxo, utxoOut: utxo};
 };
 
 /**
@@ -176,15 +179,6 @@ const updateAddress = async args => {
 
   await db.client.hmset(`addr:${addr}`, result);
   
-  if(type == 'vin')
-    await db.client.rpush(`addr.sent:${addr}`, txid);
-
-  if(type == 'vout' && !isStaked) {
-    await db.client.rpush(`addr.received:${addr}`, txid);
-  }
-  if(type == 'vout' && isStaked) {
-    await db.client.rpush(`addr.staked:${addr}`, txid);
-  }
 
   return _.assign(store, result, {type});
 };

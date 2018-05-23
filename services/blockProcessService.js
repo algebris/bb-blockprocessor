@@ -8,6 +8,7 @@ const txService = require(`${SRV_DIR}/txProcessService`);
 const reorgService = require(`${SRV_DIR}/reorgService`);
 const TxModel = require(`${APP_DIR}/models/txModel`);
 const TxLogModel = require(`${APP_DIR}/models/txLogModel`);
+const UtxoLogModel = require(`${APP_DIR}/models/utxoLogModel`);
 
 const BlockChain = require(`${SRV_DIR}/blockchain`)[cfg.bcDriver];
 const bc = new BlockChain();
@@ -18,11 +19,12 @@ const processNextBlock = async () => {
   for(let tx of this.block.tx) {
     log.info('Processing tx#', tx.txid);
     tx = txService.normalizeTx(tx);
-    const {vout, nvin, staked} = await txService.processIns(tx, height, true)
+    const {vout, nvin, staked, utxoIn, utxoOut} = await txService.processIns(tx, height, true)
       .then(ins => txService.processOuts(tx, ins, height, true));
+      
+    // console.log({vout, nvin, staked, utxoIn, utxoOut});
+    await UtxoLogModel.create({txid: tx.txid, height, utxoIn, utxoOut});
     
-    console.log({vout, nvin, staked});
-
     for (const ni of nvin) {
       const data = await txService.updateAddress({addr: ni.addr, val: ni.val, txid: tx.txid, type: 'vin'});
       await TxLogModel.create({type: 'vin', addr: ni.addr, height, txid: tx.txid, balance: data.balance, val: ni.val, data});
@@ -47,8 +49,9 @@ const run = async () => {
   if(this.blockHeight >= this.networkHeight) {
     return {code:1, block: this.blockHeight};
   }
-
-  this.blockHash = await bc.blockHashById(++this.blockHeight); // get block hash by id
+  
+  this.blockHeight++;
+  this.blockHash = await bc.blockHashById(this.blockHeight); // get block hash by id
   this.block = await bc.blockByHash(this.blockHash); //get block data by hash
   this.prevHash = await db.getPrevBlockHash(); //get latest block hash from DB
 
@@ -60,7 +63,8 @@ const run = async () => {
     return {code: 0, block: this.block.height};
   } else {
     // Reorganisation
-    const reorg = await reorgService.seekOutdatedBlocks(this.block.previousblockhash);
+    const fromHash = await reorgService.seekOutdatedBlocks(this.block.previousblockhash);
+    const reorg = await reorgService.detachBlocks(fromHash);
     return {code: 2, block: this.block.height};
   }
   
