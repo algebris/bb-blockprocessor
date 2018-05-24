@@ -1,12 +1,10 @@
 const _ = require('lodash');
-const Promise = require('bluebird');
 const cfg = require(`${APP_DIR}/config`);
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'bp.index'});
 const db = require(`${SRV_DIR}/database`).redis;
 const txService = require(`${SRV_DIR}/txProcessService`);
 const reorgService = require(`${SRV_DIR}/reorgService`);
-const TxModel = require(`${APP_DIR}/models/txModel`);
 const TxLogModel = require(`${APP_DIR}/models/txLogModel`);
 const UtxoLogModel = require(`${APP_DIR}/models/utxoLogModel`);
 
