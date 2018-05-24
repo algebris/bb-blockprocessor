@@ -22,7 +22,7 @@ const processNextBlock = async () => {
     const {vout, nvin, staked, utxoIn, utxoOut} = await txService.processIns(tx, height, true)
       .then(ins => txService.processOuts(tx, ins, height, true));
       
-    // console.log({vout, nvin, staked, utxoIn, utxoOut});
+    console.log({vout, nvin, staked, utxoIn, utxoOut});
     await UtxoLogModel.create({txid: tx.txid, height, utxoIn, utxoOut});
     
     for (const ni of nvin) {
@@ -33,10 +33,6 @@ const processNextBlock = async () => {
       const data = await txService.updateAddress({addr: vo.addr, val: vo.val, txid: tx.txid, type: 'vout', isStaked:staked});
       await TxLogModel.create({type: 'vout', height, addr: vo.addr, txid: tx.txid, balance: data.balance, val: vo.val, data, staked});
     }
-    // const obj = {id: tx.txid, time: tx.time, height, json: JSON.stringify(tx)};
-    // await db.client.hmset(`tx:${tx.txid}`, obj);
-    // const zz = await TxModel.update({txid: tx.txid}, { height, time: tx.time, txid: tx.txid, data: tx }, {upsert: true});
-    // console.log('**',zz, arr);
   }
 };
 
@@ -59,8 +55,8 @@ const run = async () => {
   if(!latestBlock || this.prevHash === this.block.previousblockhash) {
     log.info(`Processing block #${this.blockHeight}`);
     await processNextBlock.call(this);
-    await db.setCurrentBlock(this.blockHeight, this.blockHash);
-    return {code: 0, block: this.block.height};
+    await db.setCurrentBlock(this.blockHeight, this.blockHash); // update Counter in DB
+    return {code: 0, block: this.blockHeight};
   } else {
     // Reorganisation
     const fromHash = await reorgService.seekOutdatedBlocks(this.block.previousblockhash);

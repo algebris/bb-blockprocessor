@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const Utxo = new mongoose.Schema({
+  txid: {type: String},
   addr: {type: String},
   val: {type: Number},
   n: {type: Number},

@@ -2,15 +2,23 @@ const _ = require('lodash');
 const bunyan = require('bunyan');
 const log = bunyan.createLogger({name: 'core.txProcessService'});
 const db = require(`${SRV_DIR}/database`).redis;
+// const Bignum = require('bignumber.js');
 // const cfg = require(`${APP_DIR}/config`);
 
 const convertToSatoshi = val => parseInt(parseFloat(val).toFixed(8).toString().replace('.', ''));
+// const convertToSatoshiInt = val => Bignum(val).toFixed(8).toString().replace('.', '');
 const hasValidOuts = val => ['nonstandard', 'nulldata'].indexOf(val.type) == -1;
 const groupByAddr = arr => _.chain(arr)
   .groupBy('addr')
   .map((group, key) => ({addr: key, val: _.sumBy(group, 'val')}))
   .value();
-  
+// const sumByInt = (arr, field) => _.chain(arr).map(field).reduce((res, val) => res.plus(val), Bignum(0)).value().toString();
+// _.mixin({'sumByInt': sumByInt});
+// const groupByAddrInt = arr => _.chain(arr)
+//   .groupBy('addr')
+//   .map((group, key) => ({addr: key, val: _.sumByInt(group, 'val')}))
+//   .value();
+
 const normalizeTx = tx => {
   let {vin, vout} = [];
   const {txid, time} = tx;
@@ -94,12 +102,12 @@ const processIns = async (tx, height, shouldUpdate) => {
         }
         if(utxo && shouldUpdate)
           await db.client.pipeline()
-            .hdel(`utxo:${vin.id}:${vin.n}`)
+            .del(`utxo:${vin.id}:${vin.n}`)
             .lrem(`addr.utxo:${utxo.addr}`, 0, `${vin.id}:${vin.n}`)
             .exec();
         if(utxo) {
           result.push(_.pick(utxo, ['addr', 'val']));
-          inputs.push(_.assign(_.omit(utxo, ['json', 'txid', 'height'])));
+          inputs.push(_.assign({txid:`${vin.id}:${vin.n}`}, _.omit(utxo, ['json', 'txid', 'height'])));
         }
       } else {
         log.error(`DB missed TX [txId=utxo:${vin.id}:${vin.n}]`);
@@ -179,6 +187,15 @@ const updateAddress = async args => {
 
   await db.client.hmset(`addr:${addr}`, result);
   
+  if(type == 'vin')
+    await db.client.rpush(`addr.sent:${addr}`, txid);
+
+  if(type == 'vout' && !isStaked) {
+    await db.client.rpush(`addr.received:${addr}`, txid);
+  }
+  if(type == 'vout' && isStaked) {
+    await db.client.rpush(`addr.staked:${addr}`, txid);
+  }
 
   return _.assign(store, result, {type});
 };

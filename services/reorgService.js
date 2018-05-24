@@ -6,6 +6,7 @@ const log = bunyan.createLogger({name: 'core.reorganisation'});
 const BlockChain = require(`${SRV_DIR}/blockchain`)[cfg.bcDriver];
 const bc = new BlockChain();
 const TxLogModel = require(`${APP_DIR}/models/txLogModel`);
+const UtxoLogModel = require(`${APP_DIR}/models/utxoLogModel`);
 
 // const inspect = require(`${APP_DIR}/utils`).inspect;
 
@@ -25,6 +26,29 @@ const seekOutdatedBlocks = async prevHash => {
   }
 };
 
+const restoreUtxo = async (utxos, txid, height) => {
+  for(const utxo of utxos) {
+    if(_.isArray(utxo.utxoIn))
+      for(const vin of utxo.utxoIn) {
+        const utxoObj = {txid, height, n:vin.n, time:vin.time, addr: vin.addr, val:vin.val};
+        const res1 = await db.client.pipeline()
+          .hmset(`utxo:${vin.txid}`, _.assign(utxoObj, {json: JSON.stringify(utxoObj)}))
+          .rpush(`addr.utxo:${vin.addr}`, `${vin.txid}`)
+          .exec();
+        console.log('Created utxos', res1);
+      }
+    if(_.isArray(utxo.utxoOut))
+      for(const vin of utxo.utxoOut) {
+        console.log(`Delete utxo:${txid}:${vin.n}, addr.utxo:${vin.addr}`);
+        const res2 = await db.client.pipeline()
+          .del(`utxo:${txid}:${vin.n}`)
+          .lrem(`addr.utxo:${vin.addr}`, 0, `${txid}:${vin.n}`)
+          .exec();
+        console.log('Removed utxos', res2);
+      } 
+  }
+};
+
 const detachBlocks = async from => {
   let blocksFrom = await db.client.zrangebyscore('block-chain', from, '+inf');
   const firstBlock = blocksFrom.shift();
@@ -33,14 +57,14 @@ const detachBlocks = async from => {
   
   for(const blkHash of blocksFrom.reverse()) {
     const score = await db.client.zscore('block-chain', blkHash);
-    const data  = await TxLogModel.find({height:{$eq: score}}).sort({created: 'desc'});
+    const data  = await TxLogModel.find({height:score}).sort({created: 'desc'});
 
     for(const txlog of data) {
       if(txlog.val === 0) continue;
       if(txlog.type === 'vin' && txlog.addr === 'coinbase') {
-        //const balance = await db.client.hincrby('coinbase', 'sent', -txlog.val);
-        //continue;
-        console.log('coinbase.sent', -txlog.val);
+        const balance = await db.client.hincrby('coinbase', 'sent', -txlog.val);
+        console.log('Decrease coinbase balance',balance);
+        continue;
       }
       if(txlog.data) {
         const obj = {
@@ -49,14 +73,20 @@ const detachBlocks = async from => {
           staked: txlog.data._staked,
           balance: txlog.data._balance
         };
-        // await db.client.hmset(`addr:${txlog.addr}`, obj);
-        // await db.client.lrem(`addr.sent:${txlog.addr}`, 0, txlog.txid);
-        // await db.client.lrem(`addr.received:${txlog.addr}`, 0, txlog.txid);
-        // await db.client.lrem(`addr.staked:${txlog.addr}`, 0, txlog.txid);
+        const balance = await db.client.hmset(`addr:${txlog.addr}`, obj);
+        console.log('Updated balance', balance);
 
+        const u = await UtxoLogModel.find({txid:txlog.txid});
+        if(u.length > 0) 
+          await restoreUtxo(u, txlog.txid, score);
       }
     }
-
+    const res1 = await UtxoLogModel.remove({height:score});
+    console.log('Remove UtxoLog', res1);
+    const res2 = await TxLogModel.remove({height:score});
+    console.log('Remove TxLog', res2);
+    const res3 = await db.client.zrem('block-chain', blkHash);
+    console.log('Remove from block-chain', res3);
   }
 };
 
