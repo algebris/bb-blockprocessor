@@ -42,6 +42,7 @@ const resultHandler = async res => {
   }
   if(res.code === 2) {
     log.info('Reorg');
+    processBlock();
   }
 };
 
